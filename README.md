@@ -53,7 +53,7 @@ python scripts/12_map_unseen_date.py --date 2024.4.25
 
 Scripts `16`–`19` need the Earth Engine Python API and a cloud project. Set `EE_PROJECT` before running them. `scripts/gee_wheat_s1_s2_audit.js` is the same inventory for the Code Editor. The project is selected there, not stored in this repository.
 
-`scripts/20_recompute_reported_metrics.py` recomputes the headline scores from prediction tables written under `outputs/reproducibility/`. Those tables are produced by the analysis and are not included here.
+`scripts/20_recompute_reported_metrics.py` recomputes the headline scores from the tables in `outputs/reproducibility/`. Those tables are included. Orthomosaics and trained weights are not. `requirements-lock.txt` records the package versions used to produce the saved scores. The submission snapshot is git tag `v1.0.0`.
 
 ## Tests
 

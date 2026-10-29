@@ -1,0 +1,57 @@
+[
+  {
+    "system_index": "20240322T030521_20240322T031627_T50SLH",
+    "roi_clear_4_5": 1,
+    "roi_unclassified": 0,
+    "roi_shadow": 0,
+    "roi_cloud_prob": 0.5588203760114533,
+    "plot_cloud_prob_max": 6.0,
+    "plot_cloud_prob_mean": 0.07291666666666667,
+    "plot_cloud_prob_above_20": 0.0,
+    "n_plots": 480
+  },
+  {
+    "system_index": "20240411T030521_20240411T030632_T50SLH",
+    "roi_clear_4_5": 1,
+    "roi_unclassified": 0,
+    "roi_shadow": 0,
+    "roi_cloud_prob": 1.3543665134114118,
+    "plot_cloud_prob_max": 7.0,
+    "plot_cloud_prob_mean": 0.975,
+    "plot_cloud_prob_above_20": 0.0,
+    "n_plots": 480
+  },
+  {
+    "system_index": "20240421T030531_20240421T031451_T50SLH",
+    "roi_clear_4_5": 1,
+    "roi_unclassified": 0,
+    "roi_shadow": 0,
+    "roi_cloud_prob": 0.9348885903669931,
+    "plot_cloud_prob_max": 6.0,
+    "plot_cloud_prob_mean": 0.26458333333333334,
+    "plot_cloud_prob_above_20": 0.0,
+    "n_plots": 480
+  },
+  {
+    "system_index": "20240511T030551_20240511T030907_T50SLH",
+    "roi_clear_4_5": 1,
+    "roi_unclassified": 0,
+    "roi_shadow": 0,
+    "roi_cloud_prob": 0.7078311543337182,
+    "plot_cloud_prob_max": 4.0,
+    "plot_cloud_prob_mean": 0.07708333333333334,
+    "plot_cloud_prob_above_20": 0.0,
+    "n_plots": 480
+  },
+  {
+    "system_index": "20240526T030519_20240526T031702_T50SLH",
+    "roi_clear_4_5": 1,
+    "roi_unclassified": 0,
+    "roi_shadow": 0,
+    "roi_cloud_prob": 2.0034750471433336,
+    "plot_cloud_prob_max": 11.0,
+    "plot_cloud_prob_mean": 2.1479166666666667,
+    "plot_cloud_prob_above_20": 0.0,
+    "n_plots": 480
+  }
+]
