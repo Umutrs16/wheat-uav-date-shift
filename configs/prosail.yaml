@@ -1,0 +1,37 @@
+# paper_samples is the pre-specified library size.
+# draft_samples is the size used by scripts/run_available.py.
+paper_samples: 100000
+draft_samples: 20000
+seed: 42
+prospect_version: "D"
+anthocyanin: 0.0
+ranges:
+  n: [1.2, 2.2]
+  cab: [5.0, 80.0]
+  car: [2.0, 20.0]
+  cbrown: [0.0, 1.5]
+  cw: [0.005, 0.040]
+  cm: [0.003, 0.015]
+  lai: [0.2, 10.5]
+  ala: [30.0, 70.0]
+  hspot: [0.005, 0.10]   # log-uniform
+  sza: [25.0, 70.0]
+  vza: [0.0, 10.0]
+  raa: [0.0, 180.0]
+  rsoil: [0.5, 1.5]
+  psoil: [0.0, 1.0]
+car_cab_correlation: 0.35
+# Observed-range rejection is off. An earlier draft redrew half of the design
+# toward the full field sample, which included dates later used as tests.
+importance_fraction: 0.0
+importance_margin: 0.20
+domain_randomization:
+  gain: [0.98, 1.02]
+  noise_sigma: [0.002, 0.008]
+pretrain:
+  epochs: 40
+  batch_size: 512
+  lr: 0.001
+  weight_decay: 0.0001
+  val_fraction: 0.1
+  hidden: 64

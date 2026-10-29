@@ -1,0 +1,217 @@
+profile: revision2
+# Date-level LAI loss is in units of the training IQR. lambda_date 0.5 and 2 are robustness checks.
+# Do not replace the primary model with whichever sensitivity has the lower test error.
+schemes: [grouped_random, spatial_block, lodo, forward]
+baseline_schemes: [grouped_random, spatial_block, lodo, forward]
+n_splits: 5
+seed: 42
+bootstrap_replicates: 1000
+conformal_levels: [0.90, 0.95]
+
+baselines:
+  models: [gpr, plsr, svr, rf, xgb, mlp]
+  seeds: [42]
+  feature_sets:
+    bands: [B, G, R, RE, NIR]
+    bands_vi_doy: [B, G, R, RE, NIR, ndvi, ndre, gndvi, cire, rvi, osavi, evi2, doy_sin, doy_cos]
+  # Pre-specified. Only PLSR components and SVR C are chosen on the inner tune split.
+  plsr_components: [2, 3, 4, 5, 6]
+  svr_C: [1.0, 10.0, 100.0]
+  rf:
+    n_estimators: 400
+    min_samples_leaf: 2
+    max_features: sqrt
+  xgb:
+    n_estimators: 400
+    max_depth: 3
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
+  gpr:
+    n_restarts_optimizer: 0
+    nu: 0.5
+
+ppq:
+  main_seeds: [42, 43, 44, 45, 46]
+  ablation_seeds: [42, 43, 44, 45, 46]
+  variants:
+    - id: spectral
+      description: "Primary model. Five bands, indices, day of year, physics initialisation, joint LCC and LAI, date-level March LAI constraint. No assumed solar angle and no derived CCC head."
+      schemes: [grouped_random, spatial_block, spatial_block_30, spatial_block_50, lodo, forward]
+      seeds: main
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: no_prosail
+      schemes: [grouped_random, spatial_block, lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: false
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: no_doy
+      schemes: [grouped_random, spatial_block, lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: vi
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: no_vi
+      schemes: [grouped_random, spatial_block, lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: doy
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: no_phenology
+      schemes: [grouped_random, spatial_block, lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: none
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: with_sza
+      schemes: [lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all_sza
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: point_lai
+      description: "Rejected alternative: the 31 March mean is repeated as 77 plot labels and down-weighted to 0.4."
+      schemes: [lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: point
+      use_consistency: false
+      use_qc: true
+      hetero: true
+    - id: derived_ccc
+      schemes: [lodo]
+      seeds: ablation
+      tasks: [lcc, lai, ccc]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: true
+      use_qc: false
+      hetero: true
+    - id: separate
+      schemes: [lodo]
+      seeds: ablation
+      separate_tasks: true
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: lambda_date_0p5
+      description: "Robustness only. Same as spectral with lambda_date 0.5. Not used to choose the primary weight."
+      lambda_date: 0.5
+      schemes: [lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: lambda_date_2
+      description: "Robustness only. Same as spectral with lambda_date 2."
+      lambda_date: 2.0
+      schemes: [lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: no_march_lai
+      description: "Exploratory. Same as spectral, but the 31 March date-level LAI residual is omitted. Not used to replace the primary model."
+      lambda_date: 0.0
+      schemes: [grouped_random, spatial_block, lodo]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: anchor_0p5_8
+      description: "Exploratory first forward step only. Fixed LAI anchors 0.5 and 8.0, chosen before this run was scored. Not a replacement scale."
+      lai_anchors: [0.5, 8.0]
+      folds: [0]
+      schemes: [forward]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: anchor_0p2_10p5
+      description: "Exploratory first forward step only. Fixed LAI anchors 0.2 and 10.5, the PROSAIL library endpoints, chosen before this run was scored."
+      lai_anchors: [0.2, 10.5]
+      folds: [0]
+      schemes: [forward]
+      seeds: ablation
+      tasks: [lcc, lai]
+      use_cnn: false
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true
+    - id: image
+      description: "Same supervision and covariates as spectral, plus the 48 by 48 core."
+      schemes: [grouped_random, spatial_block, lodo]
+      seeds: main
+      tasks: [lcc, lai]
+      use_cnn: true
+      use_prosail_init: true
+      pheno_mode: all
+      lai_supervision: weak
+      use_consistency: false
+      use_qc: false
+      hetero: true

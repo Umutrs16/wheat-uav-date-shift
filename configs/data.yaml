@@ -1,0 +1,88 @@
+dataset:
+  doi: "10.57760/sciencedb.18749"
+  data_paper_doi: "10.11922/11-6035.nasdc.2025.0012.zh"
+  version: "V4"
+  dataset_id: "a31250383c1640a791d122f0630c699d"
+  api_root: "https://www.scidb.cn/api"
+  # File bytes. The /api mole endpoint returns a PNG preview for the GeoTIFFs.
+  file_download_root: "https://china.scidb.cn/download?fileId="
+  landing_page: "https://doi.org/10.57760/sciencedb.18749"
+
+crs:
+  geographic: "EPSG:4326"
+  projected: "EPSG:32650"
+
+bands:
+  order: [B, G, R, RE, NIR]
+  centers_nm: {B: 475, G: 560, R: 668, RE: 717, NIR: 840}
+  # Dataset readme, not the uniform 10 nm approximation in the writing plan.
+  fwhm_nm: {B: 20, G: 20, R: 10, RE: 10, NIR: 40}
+
+reflectance:
+  valid_min: 0.0
+  valid_max: 1.5
+  # If the 99th percentile of NIR exceeds this, audit flags a possible 0-10000 scale.
+  scale_warn_above: 2.0
+
+patch:
+  outer_m: 3.0
+  inner_m: 2.4
+  sensitivity_m: [2.0, 2.4, 3.0]
+  size_px: 48
+  min_valid_fraction: 0.8
+
+plot_id:
+  # Published PLOT_ID is the analysis id. Clustering is an audit, not a replacement.
+  eps_m: 0.75
+  sensitivity_m: [0.5, 1.0]
+  min_samples: 1
+
+spatial_cv:
+  block_m: 40
+  buffer_m: 10
+  sensitivity_m: [30, 40, 50]
+  n_splits: 5
+
+solar:
+  # Flight clock time is not in the released table. This assumption is recorded in every output.
+  local_hour: 11
+  local_minute: 0
+  utc_offset_hours: 8
+
+vegetation_fraction:
+  ndvi_threshold: 0.25
+
+qc_weights:
+  "1": 1.0
+  "2": 0.4
+
+ccc:
+  # μg cm^-2 * m^2 m^-2 -> g m^-2
+  factor: 0.01
+
+stages:
+  "2024.3.31":
+    iso: "2024-03-31"
+    data_paper_stage_zh: "拔节前期"
+    feekes: "5-6"
+    stage_en: "Early jointing"
+  "2024.4.12":
+    iso: "2024-04-12"
+    data_paper_stage_zh: "拔节后期"
+    feekes: "7-10"
+    stage_en: "Late jointing to boot"
+  "2024.4.25":
+    iso: "2024-04-25"
+    data_paper_stage_zh: "开花期"
+    feekes: "10.5.2"
+    stage_en: "Flowering"
+  "2024.5.18":
+    iso: "2024-05-18"
+    data_paper_stage_zh: "抽穗期"
+    feekes: "11.1-11.2"
+    stage_en: "Ripening (data-paper Feekes 11.1-11.2; Chinese label says heading)"
+  "2024.6.6":
+    iso: "2024-06-06"
+    data_paper_stage_zh: "完熟期"
+    feekes: "11.3-11.4"
+    stage_en: "Maturity"

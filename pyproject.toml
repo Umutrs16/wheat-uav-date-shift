@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wheat-uav-retrieval"
+version = "0.1.0"
+description = "Data preparation and analysis for UAV winter-wheat chlorophyll and leaf-area retrieval."
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,40 @@
+cnn:
+  in_channels: 5
+  dropout: 0.2
+physics:
+  in_dim: 5
+  hidden: 64
+phenology:
+  hidden: 32
+fusion:
+  hidden: 128
+  bottleneck: 64
+  dropout: 0.2
+loss:
+  lambda_lcc: 1.0
+  lambda_lai: 1.0
+  lambda_ccc: 0.5
+  lambda_consistency: 0.2
+  lambda_weak: 1.0
+  logvar_min: -6.0
+  logvar_max: 6.0
+optimizer:
+  name: AdamW
+  lr: 0.0003
+  physics_lr: 0.00005
+  weight_decay: 0.0001
+  grad_clip: 5.0
+scheduler:
+  name: ReduceLROnPlateau
+  factor: 0.5
+  patience: 10
+train:
+  batch_size: 32
+  max_epochs: 300
+  patience: 30
+  inner_tune_fraction: 0.15
+  inner_calibration_fraction: 0.15
+augmentation:
+  flip_rot90: true
+  reflectance_jitter: 0.02
+  noise_sigma: 0.005
