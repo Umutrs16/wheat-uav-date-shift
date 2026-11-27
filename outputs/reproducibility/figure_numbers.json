@@ -27,12 +27,56 @@
     "k": 5,
     "n_eval_field": 5,
     "ndvi_min": 0.25,
-    "crop_fraction": 0.5182007532416152,
-    "map_cell_m": 2.0,
+    "crop_fraction": 1.0,
+    "map_cell_m": 2.25,
+    "support_m": 20.25,
+    "window_cells": 9,
+    "min_valid_fraction": 0.5,
     "crs": "PROJCS[\"WGS 84 / UTM zone 34N\",GEOGCS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]]],PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",21],PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0],UNIT[\"metre\",1,AUTHORITY[\"EPSG\",\"9001\"]],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH]]",
+    "field_bounds": [
+      755667.7758565221,
+      4818028.499506726,
+      756949.6294446497,
+      4818828.572230141
+    ],
+    "chosen_fields": [
+      "S17-18_U1",
+      "S17-18_U3",
+      "S17-18_U4",
+      "S17-18_U6"
+    ],
+    "map_vs_esu": [
+      {
+        "ESU_ID": "apr2018_2_2",
+        "esu_pred": 3.9788478454197715,
+        "map_pred": 3.9874770763710643
+      },
+      {
+        "ESU_ID": "apr2018_2_3",
+        "esu_pred": 3.8318409568618406,
+        "map_pred": 3.8353626328540478
+      },
+      {
+        "ESU_ID": "apr2018_2_4",
+        "esu_pred": 4.135052670578797,
+        "map_pred": 4.133512049263762
+      },
+      {
+        "ESU_ID": "apr2018_2_5",
+        "esu_pred": 4.168164310806942,
+        "map_pred": 4.167952245894396
+      },
+      {
+        "ESU_ID": "apr2018_2_1",
+        "esu_pred": 4.40234768198299,
+        "map_pred": 4.40113634226751
+      }
+    ],
+    "map_vs_esu_max_abs_diff": 0.008629230951292755,
+    "map_vs_esu_mean_abs_diff": 0.003022986577312281,
     "obs_sd_campaign": 0.7833761690415544,
     "pred_sd_campaign": 0.5145754474692144,
-    "pred_sd_map_crop": 0.6695968220146836,
+    "pred_sd_map_crop": 0.17069950849742954,
     "sd_ratio_campaign": 0.6568689064141273,
     "within_campaign_r2": 0.5995988902341577,
     "spearman_campaign": 0.8009789792583477,

@@ -1,4 +1,4 @@
-"""Limited ground calibration on a held-out date or campaign, with spatially independent checks.
+"""Limited ground calibration on a held-out date or campaign, with random and spatially separated splits.
 
 For each group (a held-out Gaocheng date or a Knezha campaign) the plots are
 split into a sampling pool and an evaluation set. Two splits are used:
@@ -16,11 +16,18 @@ feed one of six estimators, all of the form  y_hat = ybar_S + lambda (f - fbar_S
   ridge_affine    lambda = S_fy / (S_ff + m v_f)
 S_fy and S_ff are the centred cross- and sum of squares of the k labels and
 predictions, v_f is the prediction variance over all plots of the group (no
-labels) and m = 5 is fixed in advance. lambda0 is the within-date slope of the
-observed on the predicted values in data the model did not train on and that
-are not from the evaluated group: Gaocheng calibration rows of the training
-dates of the same leave-one-date-out fold, and for Knezha the Gaocheng
-out-of-fold predictions of the same four-band model.
+labels) and m = 5 is fixed in advance. With k = 1 both sums are zero, so asrc
+returns lambda0. lambda0 is the within-date slope of the observed on the
+predicted values in data the model did not train on and that are not from the
+evaluated group: Gaocheng calibration rows of the training dates of the same
+leave-one-date-out fold, and for Knezha the Gaocheng out-of-fold predictions
+of the same four-band model.
+Two release rules choose between the map (Mode B) and the label mean (Mode C)
+from the k labels alone:
+  mode_rule        k < 3: label mean; k >= 3: asrc if its leave-one-out squared
+                   error over the k labels is below that of the label mean
+  mode_rule_ridge  the same with ridge_affine in place of asrc
+The held-out evaluation plots are only used to score the choice.
 No estimator uses evaluation labels. Monte Carlo bands describe split and
 selection randomness only; spread across groups is reported separately.
 Run after 35 and 42.
@@ -45,7 +52,9 @@ from wheat_ppqmtl.paths import configure_stdio, configs
 BUDGETS = [1, 2, 3, 5, 8, 10, 15, 20]
 REPEATS = 200
 STRATEGIES = ["random", "spatial_strata", "spectral_cluster", "spatial_spectral", "systematic", "high_risk"]
-ESTIMATORS = ["label_mean", "weighted_mean", "offset", "asrc_prior", "asrc", "ridge_affine"]
+ESTIMATORS = ["label_mean", "weighted_mean", "offset", "asrc_prior", "asrc", "ridge_affine", "mode_rule", "mode_rule_ridge"]
+RULES = ["mode_rule", "mode_rule_ridge"]
+K_RULE_MIN = 3
 DESIGNS = ["random_half", "spatial_half"]
 M_PSEUDO = 5.0
 M_SENSITIVITY = [1.0, 2.0, 5.0, 10.0, 20.0]
@@ -163,13 +172,29 @@ def _route(coords: np.ndarray, entry: np.ndarray) -> float:
     return total
 
 
+def _loo_prefers_map(y_s, f_s, lam0, v_f, m, bounded: bool) -> bool:
+    """True if the slope estimator beats the label mean in leave-one-out error over the k labels."""
+    k = len(y_s)
+    if k < K_RULE_MIN or v_f <= 0:
+        return False
+    dy, df = y_s - y_s.mean(), f_s - f_s.mean()
+    c = k / (k - 1.0)
+    s_fy = float((df * dy).sum()) - c * df * dy
+    s_ff = float((df ** 2).sum()) - c * df ** 2
+    if bounded:
+        lam = np.clip((s_fy + m * v_f * lam0) / (s_ff + m * v_f), 0.0, 1.0)
+    else:
+        lam = s_fy / (s_ff + m * v_f)
+    return bool(np.sum((dy - lam * df) ** 2) < np.sum(dy ** 2))
+
+
 def _estimate(y_s, f_s, w, f_eval, lam0, v_f, m=M_PSEUDO) -> dict:
     ybar, fbar = y_s.mean(), f_s.mean()
     s_fy = float(((f_s - fbar) * (y_s - ybar)).sum())
     s_ff = float(((f_s - fbar) ** 2).sum())
     lam_asrc = float(np.clip((s_fy + m * v_f * lam0) / (s_ff + m * v_f), 0.0, 1.0)) if v_f > 0 else lam0
     b_ridge = s_fy / (s_ff + m * v_f) if v_f > 0 else 0.0
-    return {
+    out = {
         "label_mean": np.full_like(f_eval, ybar),
         "weighted_mean": np.full_like(f_eval, float((w * y_s).sum())),
         "offset": f_eval + (ybar - fbar),
@@ -179,6 +204,12 @@ def _estimate(y_s, f_s, w, f_eval, lam0, v_f, m=M_PSEUDO) -> dict:
         "_lam_asrc": lam_asrc,
         "_s": (ybar, fbar, s_fy, s_ff),
     }
+    pick_asrc = _loo_prefers_map(y_s, f_s, lam0, v_f, m, bounded=True)
+    pick_ridge = _loo_prefers_map(y_s, f_s, lam0, v_f, m, bounded=False)
+    out["mode_rule"] = out["asrc"] if pick_asrc else out["label_mean"]
+    out["mode_rule_ridge"] = out["ridge_affine"] if pick_ridge else out["label_mean"]
+    out["_mode_b"] = (pick_asrc, pick_ridge)
+    return out
 
 
 def _run_group(payload: dict) -> dict:
@@ -194,8 +225,10 @@ def _run_group(payload: dict) -> dict:
         "rmse": {s: np.full(shape + (len(ESTIMATORS),), np.nan) for s in sources},
         "uncalibrated": {s: np.full(REPEATS, np.nan) for s in sources},
         "lam": {s: np.full(shape, np.nan) for s in sources},
+        "mode_b": {s: np.full(shape + (len(RULES),), np.nan) for s in sources},
         "m_sensitivity": {s: np.full((REPEATS, 2, len(BUDGETS), len(M_SENSITIVITY)), np.nan) for s in sources},
         "route": np.full(shape, np.nan),
+        "clusters_sampled": np.full(shape, np.nan),
         "pool_size": np.zeros(REPEATS, dtype=int),
         "eval_size": np.zeros(REPEATS, dtype=int),
     }
@@ -218,11 +251,13 @@ def _run_group(payload: dict) -> dict:
                 picks, share = _select(strategy, k, pool, frame_idx, data, sel_rng, int(base_seed % 100000 + r))
                 if payload["route"]:
                     out["route"][r, si, ki] = _route(data["coords"][picks], entry)
+                out["clusters_sampled"][r, si, ki] = len(set(data["clusters"][picks].tolist()))
                 for s, f in sources.items():
                     est = _estimate(y[picks], f[picks], share, f[evaluation], data["lambda0"][s], data["v_f"][s])
                     for ei, name in enumerate(ESTIMATORS):
                         out["rmse"][s][r, si, ki, ei] = float(np.sqrt(np.mean((est[name] - y[evaluation]) ** 2)))
                     out["lam"][s][r, si, ki] = est["_lam_asrc"]
+                    out["mode_b"][s][r, si, ki] = est["_mode_b"]
                     if strategy in ("random", "spectral_cluster"):
                         ybar, fbar, s_fy, s_ff = est["_s"]
                         v_f, lam0 = data["v_f"][s], data["lambda0"][s]
@@ -313,13 +348,36 @@ def _knezha_groups(root) -> list[dict]:
     return groups
 
 
+PAIRS = {
+    "asrc_minus_label_mean": ("asrc", "label_mean"), "asrc_minus_offset": ("asrc", "offset"),
+    "offset_minus_label_mean": ("offset", "label_mean"), "asrc_minus_ridge_affine": ("asrc", "ridge_affine"),
+    "asrc_minus_asrc_prior": ("asrc", "asrc_prior"), "weighted_minus_label_mean": ("weighted_mean", "label_mean"),
+    "ridge_affine_minus_label_mean": ("ridge_affine", "label_mean"),
+    "ridge_affine_minus_offset": ("ridge_affine", "offset"),
+    "asrc_prior_minus_label_mean": ("asrc_prior", "label_mean"),
+    "mode_rule_minus_label_mean": ("mode_rule", "label_mean"), "mode_rule_minus_asrc": ("mode_rule", "asrc"),
+    "mode_rule_ridge_minus_label_mean": ("mode_rule_ridge", "label_mean"),
+    "mode_rule_ridge_minus_ridge_affine": ("mode_rule_ridge", "ridge_affine"),
+}
+
+
+def _quiet(func, *args, **kwargs):
+    import warnings
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return func(*args, **kwargs)
+
+
+def _nanmean(values, axis=0):
+    return _quiet(np.nanmean, values, axis=axis)
+
+
+def _nanquantile(values, q, axis=0):
+    return _quiet(np.nanquantile, values, q, axis=axis)
+
+
 def _summ(values: np.ndarray, axis=0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    with np.errstate(all="ignore"):
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return (np.nanmean(values, axis=axis), np.nanquantile(values, 0.025, axis=axis),
-                    np.nanquantile(values, 0.975, axis=axis))
+    return _nanmean(values, axis=axis), _nanquantile(values, 0.025, axis=axis), _nanquantile(values, 0.975, axis=axis)
 
 
 def _aggregate(results: list[dict], groups: list[dict], source: str, label_groups: list[str]) -> dict:
@@ -342,34 +400,68 @@ def _aggregate(results: list[dict], groups: list[dict], source: str, label_group
            "macro": {}, "paired": {}, "by_group": {}, "lambda_asrc_mean": {}, "k_star": {}, "group_spread": {}}
     for si, strategy in enumerate(STRATEGIES):
         out["macro"][strategy] = {}
-        out["lambda_asrc_mean"][strategy] = np.nanmean(np.nanmean(lam[:, :, si, :], axis=1), axis=0).tolist()
+        out["lambda_asrc_mean"][strategy] = _nanmean(_nanmean(lam[:, :, si, :], axis=1), axis=0).tolist()
         for ei, est in enumerate(ESTIMATORS):
             out["macro"][strategy][est] = {"mean": mean[si, :, ei].tolist(), "lo95": lo[si, :, ei].tolist(),
                                            "hi95": hi[si, :, ei].tolist(), "n_groups": n_groups[si, :, ei].tolist(),
                                            "share_repeats_complete": np.isfinite(macro[:, si, :, ei]).mean(axis=0).tolist()}
-            group_means = np.nanmean(stack[:, :, si, :, ei], axis=1)       # G x K
+            group_means = _nanmean(stack[:, :, si, :, ei], axis=1)       # G x K
             out["group_spread"].setdefault(strategy, {})[est] = {
-                "sd_of_group_means": np.nanstd(group_means, axis=0, ddof=1).tolist() if len(results) > 1 else None,
-                "mean_monte_carlo_sd": np.nanmean(np.nanstd(stack[:, :, si, :, ei], axis=1, ddof=1), axis=0).tolist(),
+                "sd_of_group_means": _quiet(np.nanstd, group_means, axis=0, ddof=1).tolist() if len(results) > 1 else None,
+                "mean_monte_carlo_sd": _nanmean(_quiet(np.nanstd, stack[:, :, si, :, ei], axis=1, ddof=1), axis=0).tolist(),
             }
-        pairs = {"asrc_minus_label_mean": ("asrc", "label_mean"), "asrc_minus_offset": ("asrc", "offset"),
-                 "offset_minus_label_mean": ("offset", "label_mean"), "asrc_minus_ridge_affine": ("asrc", "ridge_affine"),
-                 "asrc_minus_asrc_prior": ("asrc", "asrc_prior"), "weighted_minus_label_mean": ("weighted_mean", "label_mean")}
         out["paired"][strategy] = {}
-        for name, (a, b) in pairs.items():
+        for name, (a, b) in PAIRS.items():
             diff = macro[:, si, :, ESTIMATORS.index(a)] - macro[:, si, :, ESTIMATORS.index(b)]
             d_mean, d_lo, d_hi = _summ(diff, axis=0)
-            with np.errstate(all="ignore"):
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    ga = np.nanmean(stack[:, :, si, :, ESTIMATORS.index(a)], axis=1)
-                    gb = np.nanmean(stack[:, :, si, :, ESTIMATORS.index(b)], axis=1)
-                    share = np.where(np.isfinite(diff).any(axis=0), np.nanmean(np.where(np.isfinite(diff), diff < 0, np.nan), axis=0), np.nan)
+            ga = _nanmean(stack[:, :, si, :, ESTIMATORS.index(a)], axis=1)
+            gb = _nanmean(stack[:, :, si, :, ESTIMATORS.index(b)], axis=1)
+            share = _nanmean(np.where(np.isfinite(diff), diff < 0, np.nan), axis=0)
             out["paired"][strategy][name] = {"mean": d_mean.tolist(), "lo95": d_lo.tolist(), "hi95": d_hi.tolist(),
                                              "share_negative": share.tolist(),
                                              "groups_better": (ga < gb).sum(axis=0).tolist(),
                                              "groups_compared": (np.isfinite(ga) & np.isfinite(gb)).sum(axis=0).tolist()}
+    base = STRATEGIES.index("random")
+    out["strategy_paired"] = {}
+    for si, strategy in enumerate(STRATEGIES):
+        if si == base:
+            continue
+        out["strategy_paired"][strategy] = {}
+        for est in ("label_mean", "weighted_mean", "asrc", "ridge_affine", "mode_rule"):
+            ei = ESTIMATORS.index(est)
+            diff = macro[:, si, :, ei] - macro[:, base, :, ei]
+            d_mean, d_lo, d_hi = _summ(diff, axis=0)
+            share = _nanmean(np.where(np.isfinite(diff), diff < 0, np.nan), axis=0)
+            out["strategy_paired"][strategy][est] = {"mean": d_mean.tolist(), "lo95": d_lo.tolist(),
+                                                     "hi95": d_hi.tolist(), "share_negative": share.tolist()}
+    mode_b = np.stack([res["mode_b"][source] for res in results])          # G x R x S x K x rules
+    i_label = ESTIMATORS.index("label_mean")
+    out["mode_b_share"], out["rule_correct_share"], out["mode_b_share_by_group"] = {}, {}, {}
+    for si, strategy in enumerate(STRATEGIES):
+        out["mode_b_share"][strategy], out["rule_correct_share"][strategy] = {}, {}
+        for ri, rule in enumerate(RULES):
+            chosen = mode_b[:, :, si, :, ri]
+            alt = stack[:, :, si, :, ESTIMATORS.index("asrc" if rule == "mode_rule" else "ridge_affine")]
+            lab = stack[:, :, si, :, i_label]
+            correct = np.where(chosen == 1, alt <= lab, lab <= alt).astype(float)
+            correct[~np.isfinite(chosen) | ~np.isfinite(alt)] = np.nan
+            out["mode_b_share"][strategy][rule] = _nanmean(chosen.reshape(-1, len(BUDGETS)), axis=0).tolist()
+            out["rule_correct_share"][strategy][rule] = _nanmean(correct.reshape(-1, len(BUDGETS)), axis=0).tolist()
+    for gi, g in enumerate(label_groups):
+        out["mode_b_share_by_group"][g] = {strategy: _nanmean(mode_b[gi, :, si, :, 0], axis=0).tolist()
+                                           for si, strategy in enumerate(STRATEGIES)}
+    out["lambda_by_group"] = {}
+    for gi, g in enumerate(label_groups):
+        out["lambda_by_group"][g] = {}
+        for strategy in ("random", "spectral_cluster"):
+            vals = lam[gi, :, STRATEGIES.index(strategy), :]
+            out["lambda_by_group"][g][strategy] = {
+                "median": _nanquantile(vals, 0.5, axis=0).tolist(), "q25": _nanquantile(vals, 0.25, axis=0).tolist(),
+                "q75": _nanquantile(vals, 0.75, axis=0).tolist(), "share_at_zero": _nanmean(np.where(np.isfinite(vals), vals <= 1e-9, np.nan), axis=0).tolist(),
+                "share_at_one": _nanmean(np.where(np.isfinite(vals), vals >= 1 - 1e-9, np.nan), axis=0).tolist()}
+    clusters = np.stack([res["clusters_sampled"] for res in results])     # G x R x S x K
+    out["clusters_sampled_median"] = {strategy: _nanquantile(clusters[:, :, si, :].reshape(-1, len(BUDGETS)), 0.5, axis=0).tolist()
+                                      for si, strategy in enumerate(STRATEGIES)}
     for gi, g in enumerate(label_groups):
         out["by_group"][g] = {}
         for si, strategy in enumerate(STRATEGIES):
@@ -385,11 +477,7 @@ def _aggregate(results: list[dict], groups: list[dict], source: str, label_group
             for ei, est in enumerate(ESTIMATORS):
                 curve = mean[si, :, ei]
                 ok = np.flatnonzero(np.isfinite(curve) & (curve <= tau))
-                with np.errstate(all="ignore"):
-                    import warnings
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        group_curves = np.nanmean(stack[:, :, si, :, ei], axis=1)
+                group_curves = _nanmean(stack[:, :, si, :, ei], axis=1)
                 per_group = []
                 for gc in group_curves:
                     hit = np.flatnonzero(np.isfinite(gc) & (gc <= tau))
@@ -420,6 +508,7 @@ def main() -> None:
     payload = {
         "note": " ".join(__doc__.split()),
         "settings": {"budgets": BUDGETS, "repeats": REPEATS, "strategies": STRATEGIES, "estimators": ESTIMATORS,
+                     "rules": RULES, "k_rule_min": K_RULE_MIN,
                      "m_pseudo": M_PSEUDO, "m_sensitivity": M_SENSITIVITY, "buffer_m": BUFFER_M, "tau": TAU},
         "lambda0": {}, "slope_eval": {}, "cases": {},
     }
@@ -445,24 +534,21 @@ def main() -> None:
                     msens = np.stack([r["m_sensitivity"][source] for r in res])
                     macro_m = msens.mean(axis=0)
                     complete = np.isfinite(macro_m).mean(axis=0) >= 0.5
-                    with np.errstate(all="ignore"):
-                        import warnings
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            curve_m = np.where(complete, np.nanmean(macro_m, axis=0), np.nan)
+                    curve_m = np.where(complete, _nanmean(macro_m, axis=0), np.nan)
                     block["m_sensitivity"] = {
                         strategy: {f"{m:g}": curve_m[j, :, mi].tolist() for mi, m in enumerate(M_SENSITIVITY)}
                         for j, strategy in enumerate(("random", "spectral_cluster"))}
                     if case == "gaocheng_lodo":
                         route = np.stack([r["route"] for r in res])
-                        block["route_m_median"] = {s: np.nanmedian(route[:, :, si, :].reshape(-1, len(BUDGETS)), axis=0).tolist()
+                        block["route_m_median"] = {s: _nanquantile(route[:, :, si, :].reshape(-1, len(BUDGETS)), 0.5, axis=0).tolist()
                                                    for si, s in enumerate(STRATEGIES)}
                     if case == "knezha":
                         for season, keep in (("spring", lambda g: g in SPRING), ("autumn", lambda g: g not in SPRING)):
                             idx = [i for i, g in enumerate(labels) if keep(g)]
                             if idx:
-                                block[f"macro_{season}"] = _aggregate([res[i] for i in idx], [use[i] for i in idx], source,
-                                                                      [labels[i] for i in idx])["macro"]
+                                part = _aggregate([res[i] for i in idx], [use[i] for i in idx], source, [labels[i] for i in idx])
+                                block[f"macro_{season}"] = part["macro"]
+                                block[f"season_{season}"] = {key: part[key] for key in ("paired", "mode_b_share", "rule_correct_share")}
                     payload["cases"].setdefault(f"{case}|{source}", {}).setdefault(target, {})[design] = block
                     for g, gb in block["by_group"].items():
                         for strategy, ests in gb.items():
@@ -477,7 +563,9 @@ def main() -> None:
                           f"mean {m['random']['label_mean']['mean'][3]:.3f} offset {m['random']['offset']['mean'][3]:.3f} "
                           f"asrc {m['random']['asrc']['mean'][3]:.3f} ridge {m['random']['ridge_affine']['mean'][3]:.3f} | "
                           f"k=5 spectral mean {m['spectral_cluster']['label_mean']['mean'][3]:.3f} "
-                          f"weighted {m['spectral_cluster']['weighted_mean']['mean'][3]:.3f} asrc {m['spectral_cluster']['asrc']['mean'][3]:.3f}",
+                          f"weighted {m['spectral_cluster']['weighted_mean']['mean'][3]:.3f} asrc {m['spectral_cluster']['asrc']['mean'][3]:.3f} | "
+                          f"k=5 rule {m['random']['mode_rule']['mean'][3]:.3f} (map chosen {block['mode_b_share']['random']['mode_rule'][3]:.2f}, "
+                          f"right {block['rule_correct_share']['random']['mode_rule'][3]:.2f})",
                           flush=True)
     pd.DataFrame(rows).to_csv(root / "outputs" / "metrics" / "calibration_budget_groups.csv", index=False)
     dest = root / "outputs" / "metrics" / "calibration_budget.json"

@@ -6,10 +6,12 @@ Gaocheng (25 April held out):
   the five-plot offset; maps saved as a compressed npz for the figure script.
 
 Knezha (April 2018, unit U2):
-  extract the Sequoia mosaic with 7-Zip; apply the Gaocheng four-band PLSR
-  zero-shot model; correct with an offset and with ASRC from five spectral-
-  cluster ESUs of that campaign (labels not used for evaluation ESUs on U2);
-  save a downsampled LAI stack and ESU scores.
+  extract the Sequoia mosaic with 7-Zip; average it to about 2.25 m cells and
+  take 20 m moving-window means of each band (the ESU footprint), so that the
+  Gaocheng four-band PLSR zero-shot model is applied at the support of the ESU
+  reflectance it was evaluated on; correct with an offset and with ASRC from
+  five spectral-cluster ESUs of the whole campaign (none on U2, whose ESUs are
+  only used for evaluation); save the LAI stack, the U2 mask and ESU scores.
 
 Run after 35, 40 and 42. Does not retrain the primary spectral ensemble.
 """
@@ -25,11 +27,14 @@ from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio
+from affine import Affine
 from rasterio.enums import Resampling
-from rasterio.windows import from_bounds
+from rasterio.features import geometry_mask
+from scipy.ndimage import uniform_filter
 from scipy.spatial import cKDTree
 from sklearn.cluster import KMeans
 from sklearn.cross_decomposition import PLSRegression
@@ -50,7 +55,9 @@ M_PSEUDO = 5.0
 KNEZHA_ZIP = "S17-18_U2_2018-04-04.zip"
 KNEZHA_CAMPAIGN = "April_2018"
 KNEZHA_FIELD = "S17-18_U2"
-MAP_FACTOR = 8
+MAP_FACTOR = 9
+SUPPORT_M = 20.0
+MIN_VALID = 0.5
 
 
 def _seven_zip(root: Path) -> str | None:
@@ -349,10 +356,10 @@ def _knezha(root: Path) -> dict:
     paths = _extract_mosaic(root, KNEZHA_ZIP, work)
     with rasterio.open(paths["G"]) as ref:
         height, width = ref.height // MAP_FACTOR, ref.width // MAP_FACTOR
-        transform = ref.transform
-        extent = [transform.c, transform.c + ref.width * transform.a,
-                  transform.f - ref.height * abs(transform.e), transform.f]
-        cell_m = float(abs(transform.a) * MAP_FACTOR)
+        transform = ref.transform * Affine.scale(ref.width / width, ref.height / height)
+        extent = [transform.c, transform.c + width * transform.a,
+                  transform.f + height * transform.e, transform.f]
+        cell_m = float(abs(transform.a))
         crs = str(ref.crs)
     bands = {}
     for band, path in paths.items():
@@ -360,15 +367,34 @@ def _knezha(root: Path) -> dict:
             bands[band] = src.read(1, out_shape=(height, width), resampling=Resampling.average).astype(float)
     stack = np.stack([bands[b] for b in FOUR], axis=0)
     valid = np.all(np.isfinite(stack) & (stack > 0), axis=0)
+    window = max(1, int(round(SUPPORT_M / cell_m)))
+    if window % 2 == 0:
+        window += 1
+    fraction = uniform_filter(valid.astype(np.float32), size=window, mode="constant")
+    focal = np.stack([uniform_filter(np.where(valid, stack[b], 0.0).astype(np.float32), size=window, mode="constant")
+                      / np.maximum(fraction, 1e-6) for b in range(len(FOUR))], axis=0)
+    units = gpd.read_file(f"zip://{(root / 'data' / 'external' / 'bulgaria' / 'Shapefile_Units.zip').as_posix()}!Units.shp")
+    polygon = units[units["Unit_ID"] == KNEZHA_FIELD].to_crs(crs)
+    inside = geometry_mask(polygon.geometry, out_shape=(height, width), transform=transform, invert=True)
     ndvi = (bands["NIR"] - bands["R"]) / np.clip(bands["NIR"] + bands["R"], 1e-6, None)
-    crop = valid & (ndvi >= NDVI_MIN)
-    flat = stack.reshape(4, -1).T
+    crop = valid & (ndvi >= NDVI_MIN) & (fraction >= MIN_VALID) & inside
+    flat = focal.reshape(4, -1).T
     pred = np.full(flat.shape[0], np.nan)
     ok = crop.reshape(-1)
     pred[ok] = predict(flat[ok])
     pred_map = pred.reshape(height, width)
     asrc_map = np.where(crop, float(np.mean(y_s)) + lam * (pred_map - float(np.mean(f_s))), np.nan)
     offset_map = np.where(crop, pred_map + offset, np.nan)
+
+    # Map values at the U2 ESU centres against the ESU-level predictions used in the scores.
+    inverse = ~transform
+    check = []
+    for row in field.itertuples(index=False):
+        col_f, row_f = inverse * (float(row.Point_X_UTM34), float(row.Point_Y_UTM34))
+        r_i, c_i = int(np.floor(row_f)), int(np.floor(col_f))
+        value = float(pred_map[r_i, c_i]) if 0 <= r_i < height and 0 <= c_i < width else np.nan
+        check.append({"ESU_ID": row.ESU_ID, "esu_pred": float(row.y_pred), "map_pred": value})
+    diffs = [abs(c["map_pred"] - c["esu_pred"]) for c in check if np.isfinite(c["map_pred"])]
 
     stack_path = root / "outputs" / "maps" / "fig8_knezha_april2018_u2.npz"
     np.savez_compressed(
@@ -378,9 +404,13 @@ def _knezha(root: Path) -> dict:
         lai_asrc=asrc_map.astype(np.float32),
         ndvi=ndvi.astype(np.float32),
         crop=crop.astype(np.uint8),
+        inside=inside.astype(np.uint8),
         nir=np.where(bands["NIR"] <= 0, np.nan, bands["NIR"]).astype(np.float32),
         extent=np.asarray(extent, float),
         cell_m=np.asarray([cell_m], float),
+        support_m=np.asarray([window * cell_m], float),
+        field_bounds=np.asarray(polygon.total_bounds, float),
+        esu_id=camp["ESU_ID"].astype(str).to_numpy(),
         esu_x=camp["Point_X_UTM34"].to_numpy(float),
         esu_y=camp["Point_Y_UTM34"].to_numpy(float),
         esu_obs=camp["lai"].to_numpy(float),
@@ -396,7 +426,12 @@ def _knezha(root: Path) -> dict:
         "campaign": KNEZHA_CAMPAIGN, "field_id": KNEZHA_FIELD, "image_zip": KNEZHA_ZIP,
         "n_folds": n_folds, "n_campaign_esus": int(len(camp)), "k": K,
         "n_eval_field": int(len(eval_field)), "ndvi_min": NDVI_MIN,
-        "crop_fraction": float(crop.mean()), "map_cell_m": cell_m, "extent": extent, "crs": crs,
+        "crop_fraction": float(crop[inside].mean()), "map_cell_m": cell_m, "support_m": float(window * cell_m),
+        "window_cells": window, "min_valid_fraction": MIN_VALID, "extent": extent, "crs": crs,
+        "field_bounds": [float(v) for v in polygon.total_bounds],
+        "chosen_fields": sorted(set(camp.loc[chosen, "field_id"].astype(str))),
+        "map_vs_esu": check, "map_vs_esu_max_abs_diff": float(max(diffs)) if diffs else None,
+        "map_vs_esu_mean_abs_diff": float(np.mean(diffs)) if diffs else None,
         "obs_sd_campaign": float(camp["lai"].std(ddof=0)),
         "pred_sd_campaign": float(camp["y_pred"].std(ddof=0)),
         "pred_sd_map_crop": float(np.nanstd(pred_map)),

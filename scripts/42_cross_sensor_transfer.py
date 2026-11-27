@@ -575,10 +575,12 @@ def main() -> None:
     payload = {
         "note": (
             "Gaocheng-to-Knezha transfer with four common bands. T1 raw Sequoia bands; T2 Sequoia bands mapped to "
-            "Gaocheng-equivalent bands with a four-band linear model fitted on PROSAIL spectra; T3 training restricted "
-            "to Gaocheng dates whose Zadoks range overlaps the campaign; T4 = T3 with harmonized bands. Predictions "
-            "average five grouped-fold models. Reverse transfer averages four field-grouped Knezha folds. Knezha CIs "
-            "resample field units; Gaocheng CIs resample 40 m blocks within dates."
+            "Gaocheng-equivalent bands with same-band linear maps fitted on PROSAIL spectra; T2m the same with a "
+            "four-band linear map; T3 training restricted to Gaocheng dates whose Zadoks range overlaps the campaign; "
+            "T4 = T3 with harmonized bands (T4m four-band map). Reverse scenarios R1-R4m train on Knezha bands treated "
+            "the same way and predict raw Gaocheng bands. Predictions average five grouped-fold models. Reverse "
+            "transfer averages four field-grouped Knezha folds. Knezha CIs resample field units; Gaocheng CIs resample "
+            "40 m blocks within dates."
         ),
         "gaocheng_zadoks": GAO_ZADOKS,
         "knezha_zadoks": zadoks,
